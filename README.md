@@ -27,13 +27,30 @@ L'algorithme s'assure ensuite de piocher proportionnellement dans ces 5 boîtes 
 ### 1.2 Gérer l'asymétrie du marché : Transformation Logarithmique de la cible et RobustScaler
 
 **Le problème des valeurs extrêmes (Outliers) :**Le marché immobilier est fortement asymétrique (on parle de Right-Skewed Distribution). La majorité des maisons coûte entre 300 000 $et 800 000$, mais quelques biens à 5 ou 10 millions de dollars "tirent" la moyenne vers le haut. Les modèles linéaires sont très sensibles à ces valeurs extrêmes qui faussent leurs calculs.
+
 **Solution 1 : La transformation Logarithmique (np.log)**
 En appliquant le logarithme mathématique sur la variable cible (le prix), on "tasse" les très grandes valeurs. L'échelle passe de millions à des valeurs autour de 12 à 15. La distribution prend alors une forme de "cloche" classique (loi normale). Les modèles apprennent beaucoup mieux sur des courbes normales. Une fois la prédiction faite, on utilise l'exponentielle (np.exp) pour repasser en dollars.
+
 **Solution 2 : Le RobustScaler**
 Même avec le log sur le prix, nos features (surfaces, etc.) contiennent des valeurs extrêmes. Le **StandardScaler classique** utilise la moyenne, qui est faussée par les biens les plus chers. Le **RobustScaler**, lui, utilise la médiane et l'écart interquartile (IQR : la zone où se trouvent 50 % des données centrales). **Il ignore donc complètement l'influence des valeurs aberrantes pour mettre toutes les colonnes à la même échelle (entre 0 et 1 environ)**.
 
-
 ### 1.3 L'Encodage Intelligent des Catégories : Le Target Encoding sur le Code Postal
+
+### 1.4 Sélection rigoureuse des caractéristiques (Feature Selection) avec Boruta
+
+Pour s'assurer que les modèles ne s'entraînent que sur des données pertinentes, une étape de sélection des variables (*Feature Selection*) est souvent nécessaire avant la modélisation. Pour répondre à ce besoin, l'algorithme **Boruta** est utilisé comme filtre de validation.
+
+**Le concept :** 
+Boruta est un algorithme qui s'appuie sur un modèle d'arbres de décision (généralement un Random Forest) pour comparer le pouvoir prédictif des variables réelles face à du bruit statistique pur. L'objectif n'est pas juste de prendre le "Top 10" des variables, mais de conserver **toutes** les variables statistiquement pertinentes.
+
+**Le fonctionnement (La compétition contre le hasard) :**
+1. **Création d'ombres :** Boruta duplique toutes les variables du jeu de données, mais mélange aléatoirement leurs valeurs. Ces « variables ombres » (*shadow features*) perdent tout lien logique avec la variable cible.
+2. **Entraînement :** Un modèle Random Forest est entraîné sur ce jeu de données combiné (vraies variables + variables ombres).
+3. **Le Jugement :** L'algorithme extrait l'importance de chaque variable. La meilleure variable ombre (le meilleur bruit) sert de seuil de référence.
+4. **La Décision :** Toute variable réelle qui n'arrive pas à battre le score du hasard est rejetée. Celles qui performent significativement mieux sont définitivement validées.
+
+**L'intérêt pour le projet :** 
+L'application de Boruta permet de prouver objectivement que le jeu de données final fourni aux modèles de régression (Gradient Boosting, Ridge) est débarrassé de tout bruit parasite, limitant ainsi fortement le risque de surapprentissage (*overfitting*).
 
 ## 2. Algorithme 1 : La Régression Ridge (Modèle Linéaire Pénalisé)
 ### Recherche automatique de la meilleure pénalité avec RidgeCV
