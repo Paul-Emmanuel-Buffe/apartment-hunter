@@ -12,7 +12,27 @@ Cependant, la performance d'un modèle de régression dépend fortement de la qu
 Une fois cette fondation solide établie, nous avons pu confronter trois familles d'algorithmes de régression.
 
 ### 1.1 Échantillonnage Stratifié : Équilibrer les biens abordables et luxueux
+
+Le problème initial :
+En Machine Learning, on sépare nos données en un jeu d'entraînement (Train) et un jeu de test (Test). Si l'on fait cela au hasard (aléatoirement), on prend le risque que notre jeu de test ne contienne que des maisons de taille moyenne, et aucune villa de luxe. Le modèle ne sera donc jamais évalué sur sa capacité à prédire les biens très chers.
+
+La solution : L'échantillonnage stratifié
+La stratification garantit que la distribution d'une variable cible est identique dans le Train et dans le Test.
+
+Pour une classification (ex: Chien/Chat), c'est facile : on garde 50% de chiens dans le train et 50% dans le test.
+
+Pour une régression (le prix continu d'une maison), c'est plus complexe. On utilise alors une méthode mathématique (pd.qcut en Python) pour découper nos prix continus en "tranches" (quantiles). Par exemple, 5 tranches : Très abordable, Abordable, Moyen, Cher, Très cher.
+L'algorithme s'assure ensuite de piocher proportionnellement dans ces 5 boîtes pour créer le Train et le Test.
+
 ### 1.2 Gérer l'asymétrie du marché : Transformation Logarithmique de la cible et RobustScaler
+
+**Le problème des valeurs extrêmes (Outliers) :**Le marché immobilier est fortement asymétrique (on parle de Right-Skewed Distribution). La majorité des maisons coûte entre 300 000 $et 800 000$, mais quelques biens à 5 ou 10 millions de dollars "tirent" la moyenne vers le haut. Les modèles linéaires sont très sensibles à ces valeurs extrêmes qui faussent leurs calculs.
+**Solution 1 : La transformation Logarithmique (np.log)**
+En appliquant le logarithme mathématique sur la variable cible (le prix), on "tasse" les très grandes valeurs. L'échelle passe de millions à des valeurs autour de 12 à 15. La distribution prend alors une forme de "cloche" classique (loi normale). Les modèles apprennent beaucoup mieux sur des courbes normales. Une fois la prédiction faite, on utilise l'exponentielle (np.exp) pour repasser en dollars.
+**Solution 2 : Le RobustScaler**
+Même avec le log sur le prix, nos features (surfaces, etc.) contiennent des valeurs extrêmes. Le **StandardScaler classique** utilise la moyenne, qui est faussée par les biens les plus chers. Le **RobustScaler**, lui, utilise la médiane et l'écart interquartile (IQR : la zone où se trouvent 50 % des données centrales). **Il ignore donc complètement l'influence des valeurs aberrantes pour mettre toutes les colonnes à la même échelle (entre 0 et 1 environ)**.
+
+
 ### 1.3 L'Encodage Intelligent des Catégories : Le Target Encoding sur le Code Postal
 
 ## 2. Algorithme 1 : La Régression Ridge (Modèle Linéaire Pénalisé)
