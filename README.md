@@ -1,6 +1,7 @@
 # Analyse et Fonctionnement des Algorithmes de Régression
 
 ## 1. Introduction à la Régression et Préparation des Données
+
 Dans le domaine du Machine Learning, notre projet s'inscrit dans le cadre de l'**apprentissage supervisé**. Notre objectif est de prédire la valeur d'un bien immobilier en nous basant sur ses caractéristiques (surface, localisation, qualité de construction, etc.). Puisque la variable que nous cherchons à prédire est une valeur continue (un prix en dollars) et non une catégorie, nous utilisons des algorithmes de **régression**.
 
 Cependant, la performance d'un modèle de régression dépend fortement de la qualité des données qu'on lui fournit. Le marché immobilier présente des spécificités techniques (forte asymétrie, variables géographiques complexes) qui ont nécessité des transformations mathématiques préalables :
@@ -95,9 +96,156 @@ Pour identifier la valeur idéale sans réglage manuel arbitraire, nous utilison
 
 C'est cet Alpha optimal qui vient s'ajouter sur la diagonale de la grille via la formule $b = (X^T X + \text{Alpha} \times I)^{-1} X^T y$, garantissant des prédictions stables et robustes sur les futures transactions.
 
-## 3. Algorithme 2 : Random Forest Regressor (Méthode Ensembliste - Bagging)
+---
 
+## 3. Algorithme 2 : Random Forest Regressor (Méthode Ensembliste)
+
+### 3.1 Présentation et Principe Théorique (Bagging)
+Le **Random Forest Regressor** (Forêt Aléatoire) est un algorithme d'apprentissage supervisé qui repose sur l'approche ensembliste, et plus précisément sur le **Bagging** (*Bootstrap Aggregating*).
+
+Au lieu de s'appuyer sur un seul arbre de décision (qui a tendance à mémoriser les données par cœur et faire du surapprentissage), la forêt construit des dizaines ou des centaines d'arbres **strictement indépendants et travaillant en parallèle**, puis combine leurs prédictions.
+
+#### Les concepts clés du fonctionnement :
+1. **Bootstrap (Aléa sur les lignes) :** Chaque arbre s'entraîne sur un échantillon différent, créé par tirage au sort avec remise parmi les maisons de la base d'entraînement.
+2. **Feature Randomness (Aléa sur les colonnes) :** À chaque intersection d'un arbre, l'algorithme tire au sort un petit groupe de critères (ex: uniquement la Surface et l'Année). L'arbre doit se débrouiller avec ces critères imposés pour créer sa branche.
+3. **Agrégation (Le Vote) :** La prédiction finale est la moyenne exacte des prédictions de tous les arbres indépendants.
+
+---
+
+### 3.2 Exemple Pratique : Le vote de la Forêt (En parallèle)
+
+Imaginons que nous voulons prédire le prix d'une maison de **120 m²** avec **4 pièces**, et que notre forêt contient **3 arbres** ($N=3$) travaillant chacun dans leur coin, sans se concerter. *Note : Ces valeurs ont été fixées une fois pour toutes lors de l'entraînement, l'algorithme n'a plus besoin du fichier de données pour faire cette prédiction.*
+
+*   **Arbre 1 (Expert Surface) :**
+    *   *Contexte :* Lors de sa construction, le tirage au sort lui a imposé de se concentrer sur la Surface.
+    *   *Parcours :* Notre maison répond "Oui" à *Surface > 100 m²*. Elle tombe dans un groupe final (feuille) pré-calculé valant un log-prix moyen de : $\mathbf{12.2}$
+
+*   **Arbre 2 (Expert Pièces) :**
+    *   *Contexte :* Le tirage au sort l'a forcé à regarder le nombre de pièces.
+    *   *Parcours :* Notre maison répond "Oui" à *Pièces > 3* et tombe dans une feuille pré-calculée valant : $\mathbf{12.4}$
+
+*   **Arbre 3 (Expert Mixte) :**
+    *   *Parcours :* Croise différents critères et place la maison dans une feuille valant : $\mathbf{12.3}$
+
+**L'Agrégation finale (Bagging) :**
+Le Random Forest ramasse les copies et fait la moyenne des 3 experts pour obtenir le log-prix final :
+$\hat{y}_{\log} = \frac{12.2 + 12.4 + 12.3}{3} = \mathbf{12.3}$
+
+**Le retour à la réalité ($) :**
+Pour connaître le vrai prix en dollars, nous annulons le log avec l'exponentielle (`np.exp`) :
+$\text{Prix final} = \exp(12.3) \approx \mathbf{219\,695\ \$}$
+
+---
+
+### 3.3 Avantages et Limites (Random Forest)
+
+#### **Avantages :**
+- **Résistance au surapprentissage :** Grâce au double tirage aléatoire, il est beaucoup moins sensible à l'overfitting qu'un arbre unique. C'est la sagesse de la foule : une erreur individuelle est noyée par le groupe.
+- **Relations non-linéaires :** Capture des interactions complexes sans nécessiter de transformation préalable des données (pas besoin de standardisation).
+- **Robustesse :** Le moyennage encaisse très bien les valeurs extrêmes (outliers).
+- **Calcul parallélisable :** Puisque les arbres sont indépendants, l'entraînement peut être réparti sur tous les cœurs du processeur (via le paramètre `n_jobs=-1`).
+
+#### **Limites :**
+- **Incapacité d'extrapolation :** Il ne peut pas prédire un prix supérieur au prix maximum vu lors de son entraînement.
+- **Boîte Noire :** Impossible de visualiser l'arbre final puisqu'il s'agit d'une moyenne de centaines d'arbres.
+
+---
+
+### 3.4 Hyperparamètres Clés
+
+- **`n_estimators`** : Le nombre d'arbres (ex: 100). Plus il y en a, plus la moyenne est stable (sans risque de surapprentissage), mais plus le calcul est long.
+- **`max_depth`** : Profondeur maximale de chaque arbre (ex: 15 questions successives). Limite la complexité.
+- **`min_samples_split`** : Nombre minimum de maisons requises dans un nœud pour autoriser une nouvelle division (ex: 5). Agit comme un garde-fou.
+- **`random_state`** : Fixe la graine aléatoire pour garantir des résultats identiques à chaque exécution du notebook.
+
+Voici une version enrichie et plus détaillée de ton cours. J'y ai ajouté les fondements mathématiques vulgarisés (notamment le rôle exact du "Gradient" et de la "Fonction de perte") ainsi que des explications plus poussées sur la mécanique interne du modèle.
+
+C'est idéal pour démontrer dans ton notebook que tu ne te contentes pas d'importer une librairie, mais que tu comprends la véritable machinerie de l'algorithme.
+
+---
+
+```markdown
 ## 4. Algorithme 3 : Gradient Boosting Regressor (Méthode Ensembliste - Boosting)
+
+### 4.1 Présentation et Principes Fondamentaux : Le mariage de deux mondes
+
+Si le Random Forest repose sur l'indépendance et le vote parallèle (Bagging), le **Gradient Boosting** repose sur la **collaboration séquentielle** (Boosting). 
+
+Fondamentalement, cet algorithme est la fusion brillante entre deux grands concepts du Machine Learning :
+1. **L'arbre de décision comme "Apprenant Faible" (*Weak Learner*) :** Au lieu de construire des arbres profonds et complexes, le Boosting utilise volontairement des arbres très simples (peu profonds). Pris isolément, un tel arbre est un prédicteur médiocre, mais il a l'avantage de ne pas surapprendre.
+2. **La Descente de Gradient (L'optimisation) :** C'est le moteur mathématique de l'algorithme. L'objectif est de minimiser une **Fonction de Perte** (*Loss Function*), généralement l'Erreur Quadratique Moyenne (MSE) pour la régression. 
+
+**Pourquoi "Gradient" ?** 
+En mathématiques, le gradient indique la pente de l'erreur. Il s'avère que si l'on cherche à minimiser l'erreur quadratique (MSE), la dérivée de cette erreur (le gradient) correspond exactement au **résidu** (la différence entre le vrai prix et le prix prédit). 
+Ainsi, demander à un arbre de "prédire le résidu", c'est littéralement lui demander de calculer le gradient pour savoir dans quelle direction corriger la prédiction globale.
+
+#### La mécanique mathématique de la cascade :
+L'algorithme construit un modèle additif pas à pas :
+
+1. **L'initialisation ($F_0$) :** Le modèle fait une première prédiction constante pour toutes les maisons, généralement la moyenne globale des prix.
+2. **Le calcul de l'erreur (Pseudo-Résidus) :** Pour chaque maison $i$, on calcule l'erreur actuelle : $r_i = y_i - F_{m-1}(x_i)$.
+3. **L'arbre correcteur ($h_m$) :** Un nouvel arbre de décision est entraîné **non pas sur les prix $y$**, mais sur ces résidus $r$.
+4. **La mise à jour avec le *Learning Rate* ($\nu$) :** On met à jour la prédiction globale en y ajoutant les trouvailles du nouvel arbre, freinées par le taux d'apprentissage :
+   $$F_m(x) = F_{m-1}(x) + \nu \cdot h_m(x)$$
+5. **Répétition :** On recommence l'opération des centaines de fois ($M$ itérations). Le modèle final est la somme de l'initialisation et de toutes les micro-corrections.
+
+---
+
+### 4.2 Exemple Pratique : L'apprentissage par l'erreur pas à pas
+
+Imaginons une maison dont le vrai log-prix est de **12.5**.
+
+*   **Étape 0 (Prédiction de base $F_0$) :** Le modèle commence par prédire la moyenne globale, disons **12.0**.
+    *   *Erreur résiduelle :* $12.5 - 12.0 = \mathbf{+0.5}$ (Le modèle est en dessous).
+
+*   **Arbre 1 (Le premier correcteur $h_1$) :** 
+    L'Arbre 1 cherche à prédire cette erreur de **+0.5**. Disons qu'il trouve +0.4.
+    Au lieu d'ajouter +0.4 d'un coup, le modèle applique le frein, le **Learning Rate** (ex: $\nu = 0.1$).
+    *   *Nouvelle prédiction $F_1$ :* $12.0 + (0.1 \times 0.4) = \mathbf{12.04}$
+    *   *Nouveau résidu à corriger :* $12.5 - 12.04 = \mathbf{+0.46}$
+
+*   **Arbre 2 (Le deuxième correcteur $h_2$) :**
+    L'Arbre 2 prend le relais. Il tente d'estimer ce nouveau résidu de +0.46. Il trouve +0.5.
+    *   *Nouvelle prédiction $F_2$ :* $12.04 + (0.1 \times 0.5) = \mathbf{12.09}$
+    *   *Nouveau résidu à corriger :* $12.5 - 12.09 = \mathbf{+0.41}$
+
+... Et ainsi de suite, jusqu'à l'Arbre 200 ! Petit à petit, guidé par la pente de l'erreur, le modèle s'approche de la vraie valeur de 12.5 de manière douce et stable.
+
+---
+
+### 4.3 Décorticage de tes Hyperparamètres (La magie du "Hist")
+
+Le code utilise `HistGradientBoostingRegressor`. Le préfixe **Hist** signifie "Histogramme". 
+Dans un arbre classique, pour trouver où diviser une variable continue (ex: la Surface), l'algorithme teste toutes les valeurs possibles (120,5 m², 120,6 m²...). C'est très long. 
+La version *Hist* divise l'espace en "bacs" discrets (ex: 256 bacs d'histogrammes). L'algorithme ne cherche plus les coupures sur les valeurs réelles, mais sur ces bacs. Le temps d'entraînement passe d'une complexité $O(n\_données)$ à $O(n\_bacs)$, rendant le calcul **foudroyant de rapidité** sur de grands jeux de données.
+
+*   **`max_iter=200` (Nombre d'arbres) :** Définit le nombre d'étapes de correction. Il faut trouver le juste milieu : trop peu d'arbres = sous-apprentissage ; trop d'arbres = surapprentissage.
+*   **`learning_rate=0.1` (Taux d'apprentissage) :** Contrôle l'impact de chaque arbre. **Il est intimement lié à `max_iter`** : si on divise le `learning_rate` par deux, il faudra généralement doubler `max_iter` pour atteindre la même cible, ce qui donne un modèle souvent plus précis, mais plus long à entraîner.
+*   **`max_depth=7` (Profondeur) :** Garde les arbres volontairement "faibles". Un arbre profond chercherait à corriger parfaitement les résidus du premier coup, ce qui détruirait la logique d'apprentissage progressif.
+*   **`random_state=42` :** Garantit la reproductibilité des résultats.
+
+---
+
+### 4.4 Entraînement, Prédiction et Évaluation
+
+La phase de modélisation respecte les mêmes avantages que la Forêt Aléatoire :
+1. **Insensibilité à l'échelle :** L'approche par histogrammes et arbres de décision structure l'espace via des seuils. Standardiser les données (via `RobustScaler`) est strictement inutile et ne ferait que rajouter une étape superflue.
+2. **Reconversion de la cible :** Le modèle ayant été entraîné sur la cible transformée (`y_train` en log), il produit une prédiction finale en log-prix. L'application de la fonction inverse `np.exp()` permet de repasser en monnaie réelle pour analyser nos métriques (MAE et RMSE).
+
+---
+
+### 4.5 Avantages et Limites (Gradient Boosting)
+
+#### **Avantages :**
+- **Précision chirurgicale :** En ciblant activement et itérativement ses propres erreurs, c'est l'un des algorithmes les plus puissants existants pour les données tabulaires.
+- **Optimisation des ressources :** L'approche `Hist` offre un rapport performance/temps d'exécution exceptionnel, optimisant considérablement l'usage de la mémoire RAM.
+
+#### **Limites :**
+- **Risque de surapprentissage (Overfitting) :** Si on le laisse tourner trop longtemps (`max_iter` excessif), le modèle finira par considérer le "bruit" aléatoire ou les valeurs aberrantes comme des motifs légitimes à apprendre et à corriger.
+- **Séquentiel par nature :** Puisque l'Arbre $m$ a besoin des résidus générés par l'Arbre $m-1$, la construction des arbres ne peut pas être parallélisée (contrairement au `n_jobs=-1` du Random Forest).
+
+---
+
 ### L'ajustement fin des hyperparamètres avec GridSearchCV
 
 ## 5. Interprétabilité, Choix du Modèle et Déploiement
