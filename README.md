@@ -49,11 +49,51 @@ Boruta est un algorithme qui s'appuie sur un modèle d'arbres de décision (gén
 3. **Le Jugement :** L'algorithme extrait l'importance de chaque variable. La meilleure variable ombre (le meilleur bruit) sert de seuil de référence.
 4. **La Décision :** Toute variable réelle qui n'arrive pas à battre le score du hasard est rejetée. Celles qui performent significativement mieux sont définitivement validées.
 
+◄───────────────────────────── 2p colonnes ─────────────────────────────►
+
+         ┌───────────────────────────────────┬───────────────────────────────────┐ ───
+         │          VRAIES VARIABLES         │         VARIABLES OMBRES          │  ▲
+         │             (p colonnes)          │       (p colonnes mélangées)      │  │
+         ├───────────────────────────────────┼───────────────────────────────────┤  │
+Maison 1 │ sqft_living | grade | zipcode_enc │ shadow_sqft | shadow_gr | sh_zip  │  │
+Maison 2 │    1 500    │   7   │    13,2     │    3 400    │     9   │   12,1   │  │
+Maison 3 │    2 200    │   8   │    14,1     │      850    │     6   │   13,8   │  N lignes
+  ...    │      850    │   6   │    12,4     │    1 500    │     7   │   13,2   │  │
+Maison N │      ...    │  ...  │     ...     │     ...     │    ...  │   ...    │  │
+         └───────────────────────────────────┴───────────────────────────────────┘  ▼
+                                       │
+                                       ▼
+                       [ Entraînement du Random Forest ]
+                        (sur les 2p colonnes mélangées)
+
 **L'intérêt pour le projet :** 
 L'application de Boruta permet de prouver objectivement que le jeu de données final fourni aux modèles de régression (Gradient Boosting, Ridge) est débarrassé de tout bruit parasite, limitant ainsi fortement le risque de surapprentissage (*overfitting*).
 
 ## 2. Algorithme 1 : La Régression Ridge (Modèle Linéaire Pénalisé)
+
+### Pourquoi Ridge plutôt qu'une régression classique ou Lasso ?
+
+Le choix de cet algorithme découle directement des caractéristiques de notre jeu de données :
+
+* **Face à la régression classique (MCO) :** le modèle linéaire classique tente d'isoler l'effet propre de chaque critère en inversant la matrice des recoupements ($X^T X$). En présence de variables corrélées (comme la surface et le nombre de pièces), ce calcul tente de diviser par un chiffre quasi nul. Les poids explosent avec des valeurs démesurées et opposées, rendant le modèle instable. Ridge corrige ce défaut en stabilisant le calcul matriciel.
+* **Face à Lasso (L1) :** Lasso a pour propriété d'annuler certains poids (mise à zéro stricte), ce qui en fait un outil de sélection drastique de variables. Notre sélection de variables ayant déjà été opérée en amont (notamment avec Boruta), nous souhaitons conserver toutes les caractéristiques restantes. Ridge (pénalité L2) est donc le candidat idéal : il ne supprime aucune variable, mais réduit et répartit équitablement l'impact entre les critères redondants.
+
+---
+
 ### Recherche automatique de la meilleure pénalité avec RidgeCV
+
+L'efficacité de Ridge repose sur la valeur de son amende, le paramètre **Alpha** :
+
+* **Alpha trop faible** : le modèle se comporte comme une régression classique et redevient instable.
+* **Alpha trop fort** : les poids sont excessivement écrasés et le modèle perd sa capacité à bien prédire (sous-apprentissage).
+
+Pour identifier la valeur idéale sans réglage manuel arbitraire, nous utilisons `RidgeCV` de Scikit-Learn :
+
+1. **Grille de test :** nous définissons une échelle de valeurs d'Alpha à évaluer (ex. de 0,1 à 1 000).
+2. **Validation croisée (CV) :** les données d'entraînement sont découpées en plusieurs blocs. Pour chaque valeur d'Alpha, le modèle est entraîné sur une partie des blocs et testé sur le bloc restant afin d'évaluer son erreur moyenne réelle.
+3. **Optimisation :** l'algorithme sélectionne l'Alpha affichant la plus faible marge d'erreur.
+
+C'est cet Alpha optimal qui vient s'ajouter sur la diagonale de la grille via la formule $b = (X^T X + \text{Alpha} \times I)^{-1} X^T y$, garantissant des prédictions stables et robustes sur les futures transactions.
 
 ## 3. Algorithme 2 : Random Forest Regressor (Méthode Ensembliste - Bagging)
 
