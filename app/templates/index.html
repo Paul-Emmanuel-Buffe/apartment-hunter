@@ -3,30 +3,60 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Chasseurs d'appart' - Estimateur de prix</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 
+{# ---------- Icônes des sections (une par section, dans l'ordre) ---------- #}
+{% macro icone(i) %}
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {% if i == 0 %}<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>
+    {% elif i == 1 %}<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+    {% elif i == 2 %}<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+    {% elif i == 3 %}<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>
+    {% elif i == 4 %}<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>
+    {% else %}<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>
+    {% endif %}
+  </svg>
+{% endmacro %}
+
+{# ---------- Un champ du formulaire ---------- #}
 {% macro champ_html(c) %}
-  <div class="champ{% if erreurs.get(c.nom) %} champ-erreur{% endif %}">
+  {% set unites = {'living_m2': 'm²', 'above_m2': 'm²', 'basement_m2': 'm²', 'lot_m2': 'm²',
+                   'living15_m2': 'm²', 'lot15_m2': 'm²', 'lat': '°', 'long': '°'} %}
+  {% set pas = ['bedrooms', 'bathrooms', 'floors', 'grade', 'condition'] %}
+  <div class="champ{% if c.type == 'checkbox' %} champ-bascule{% endif %}{% if erreurs.get(c.nom) %} champ-erreur{% endif %}">
     {% if c.type == 'checkbox' %}
-      <label class="case">
-        <input type="checkbox" name="{{ c.nom }}" id="{{ c.nom }}" {% if saisie[c.nom] in (True, 'on') %}checked{% endif %}>
-        <span>{{ c.label }}</span>
+      <label class="bascule" for="{{ c.nom }}">
+        <input type="checkbox" name="{{ c.nom }}" id="{{ c.nom }}" role="switch" {% if saisie[c.nom] in (True, 'on') %}checked{% endif %}>
+        <span class="bascule-piste" aria-hidden="true"></span>
+        <span class="bascule-texte">{{ c.label }}</span>
       </label>
     {% else %}
-      <label for="{{ c.nom }}">{{ c.label }}</label>
+      <label for="{{ c.nom }}">{{ c.label }}{% if c.optionnel %} <span class="facultatif">facultatif</span>{% endif %}</label>
       {% if c.type == 'select' %}
         <select name="{{ c.nom }}" id="{{ c.nom }}">
           {% for valeur, libelle in c.options %}
             <option value="{{ valeur }}" {% if saisie[c.nom]|string == valeur|string %}selected{% endif %}>{{ libelle }}</option>
           {% endfor %}
         </select>
+      {% elif c.nom in pas %}
+        <div class="pas">
+          <button type="button" class="pas-btn" data-cible="{{ c.nom }}" data-sens="-1" aria-label="Diminuer : {{ c.label }}">−</button>
+          <input type="number" name="{{ c.nom }}" id="{{ c.nom }}" value="{{ saisie[c.nom]|nb }}"
+                 min="{{ c.min }}" max="{{ c.max }}" step="{{ c.step }}" inputmode="decimal" {% if not c.optionnel %}required{% endif %}>
+          <button type="button" class="pas-btn" data-cible="{{ c.nom }}" data-sens="1" aria-label="Augmenter : {{ c.label }}">+</button>
+        </div>
       {% else %}
-        <input type="number" name="{{ c.nom }}" id="{{ c.nom }}" value="{{ saisie[c.nom]|nb }}"
-               min="{{ c.min }}" max="{{ c.max }}" step="{{ c.step }}" {% if not c.optionnel %}required{% endif %}>
+        <div class="avec-unite">
+          <input type="number" name="{{ c.nom }}" id="{{ c.nom }}" value="{{ saisie[c.nom]|nb }}"
+                 min="{{ c.min }}" max="{{ c.max }}" step="{{ c.step }}" inputmode="decimal" {% if not c.optionnel %}required{% endif %}>
+          {% if unites.get(c.nom) %}<span class="unite" aria-hidden="true">{{ unites[c.nom] }}</span>{% endif %}
+        </div>
       {% endif %}
+      {% if c.nom in ('grade', 'condition') %}<small class="niveau" id="niveau-{{ c.nom }}" aria-live="polite"></small>{% endif %}
     {% endif %}
     {% if erreurs.get(c.nom) %}<small class="message-erreur">{{ erreurs[c.nom] }}</small>{% endif %}
     {% if c.aide %}<small class="aide">{{ c.aide }}</small>{% endif %}
@@ -34,32 +64,38 @@
 {% endmacro %}
 
 <header class="bandeau">
-  <div class="conteneur">
-    <h1>Chasseurs d'appart'</h1>
-    <p>Estimateur de prix d'un bien immobilier dans le comté de King (région de Seattle, États-Unis).</p>
+  <div class="conteneur bandeau-contenu">
+    <div>
+      <h1>Chasseurs d'appart'</h1>
+      <p>Estimez le prix d'un bien du comté de King (région de Seattle, États-Unis) en quelques réponses.</p>
+    </div>
+    <svg class="skyline" viewBox="0 0 320 90" aria-hidden="true" focusable="false">
+      <path d="M0 90V64l14-10 14 10v26zm34 0V58h20v32zm26 0V68l12-9 12 9v22zM100 90V70h14v20zm20 0V62h12v28zM152 90V50h6l2-30h-3v-6h12v6h-3l2 30h6v40zm34 0V66l16-12 16 12v24zm44 0V56h24v34zm30 0V72h12v18zm18 0V60l14-10 14 10v30z" fill="currentColor"/>
+      <path d="M164 14l2-10 2 10z" fill="currentColor"/>
+    </svg>
   </div>
 </header>
 
 <main class="conteneur grille">
 
-  <form method="post" class="carte" novalidate>
+  <form method="post" class="formulaire" novalidate id="formulaire">
     <h2 class="titre-carte">Décrivez le bien</h2>
 
     {% if erreurs %}
-      <div class="alerte" id="alerte" role="alert">Certains champs sont à corriger avant de lancer l'estimation.</div>
+      <div class="alerte" id="alerte" role="alert">Certains champs sont à corriger avant de lancer l'estimation. Ils sont entourés en rouge.</div>
     {% endif %}
 
     {% for section in sections %}
       {% if section.avance %}
         <details class="section avancee" {% if erreurs %}open{% endif %}>
-          <summary>{{ section.titre }}</summary>
+          <summary><span class="pastille">{{ icone(loop.index0) }}</span>{{ section.titre }}<span class="resume-aide">Réglages fins, déjà pré-remplis</span></summary>
           <div class="champs">
             {% for c in section.champs %}{{ champ_html(c) }}{% endfor %}
           </div>
         </details>
       {% else %}
         <fieldset class="section">
-          <legend>{{ section.titre }}</legend>
+          <legend><span class="pastille">{{ icone(loop.index0) }}</span>{{ section.titre }}</legend>
           <div class="champs">
             {% for c in section.champs %}{{ champ_html(c) }}{% endfor %}
           </div>
@@ -67,17 +103,28 @@
       {% endif %}
     {% endfor %}
 
-    <button type="submit" class="bouton">Estimer le prix</button>
+    <div class="actions">
+      <button type="submit" class="bouton" id="bouton-estimer"><span class="bouton-texte">Estimer le prix</span><span class="rotation" aria-hidden="true"></span></button>
+      <a class="lien-reset" href="{{ url_for('accueil') }}">Remettre les valeurs par défaut</a>
+    </div>
   </form>
 
-  <aside class="carte resultat" id="resultat" aria-live="polite">
+  <aside class="resultat" id="resultat" aria-live="polite">
+    <h2 class="titre-resultat">Estimation</h2>
     {% if resultat %}
-      <h2 class="titre-carte">Estimation</h2>
       <p class="prix">{{ resultat.prix|dollars }}</p>
-      <p class="fourchette">Fourchette indicative : {{ resultat.bas|dollars }} à {{ resultat.haut|dollars }}</p>
+      <p class="prix-legende">Prix de vente estimé</p>
+
+      <div class="plage" role="img" aria-label="Fourchette de {{ resultat.bas|dollars }} à {{ resultat.haut|dollars }}">
+        <div class="plage-barre"><span class="plage-marqueur"></span></div>
+        <div class="plage-bornes"><span>{{ resultat.bas|dollars }}</span><span>{{ resultat.haut|dollars }}</span></div>
+      </div>
+      <p class="fourchette">Fourchette indicative, selon l'erreur médiane du modèle.</p>
+
       <dl class="details">
         <div><dt>Prix au m²</dt><dd>{{ resultat.prix_m2|dollars_exact }}</dd></div>
       </dl>
+
       <details class="technique">
         <summary>Ce que le modèle a reçu</summary>
         <table>
@@ -87,8 +134,14 @@
         </table>
       </details>
     {% else %}
-      <h2 class="titre-carte">Estimation</h2>
-      <p class="vide">Renseignez les caractéristiques du bien, puis lancez l'estimation. Le résultat s'affichera ici.</p>
+      <svg class="maison-vide" viewBox="0 0 120 90" aria-hidden="true" focusable="false">
+        <path d="M10 46L60 10l50 36" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M22 40v42h76V40" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M52 82V58h16v24" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M82 22V10h10v20" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+      </svg>
+      <p class="vide">Remplissez le formulaire puis lancez l'estimation : le prix et sa fourchette s'afficheront ici.</p>
+      <p class="vide petit">Les valeurs déjà présentes permettent de tester tout de suite.</p>
     {% endif %}
 
     <div class="note">
@@ -100,6 +153,7 @@
 </main>
 
 <script>
+  /* Valeurs par défaut du code postal affichées dans les champs avancés */
   const ZONES = {{ zones|tojson }};
   const codePostal = document.getElementById("zipcode");
   const champsZone = {lat: "lat", long: "long", living15_m2: "living15_m2", lot15_m2: "lot15_m2"};
@@ -113,7 +167,54 @@
   }
   codePostal.addEventListener("change", majPlaceholders);
   majPlaceholders();
-  {% if resultat %}document.getElementById("resultat").scrollIntoView();{% elif erreurs %}document.getElementById("alerte").scrollIntoView();{% endif %}
+
+  /* Boutons - et + */
+  document.querySelectorAll(".pas-btn").forEach(function (bouton) {
+    bouton.addEventListener("click", function () {
+      const champ = document.getElementById(bouton.dataset.cible);
+      const pas = parseFloat(champ.step) || 1;
+      const min = parseFloat(champ.min), max = parseFloat(champ.max);
+      let valeur = parseFloat(String(champ.value).replace(",", "."));
+      if (isNaN(valeur)) valeur = isNaN(min) ? 0 : min - (bouton.dataset.sens === "1" ? pas : 0);
+      valeur += pas * parseInt(bouton.dataset.sens, 10);
+      if (!isNaN(min)) valeur = Math.max(min, valeur);
+      if (!isNaN(max)) valeur = Math.min(max, valeur);
+      champ.value = Math.round(valeur * 10000) / 10000;
+      champ.dispatchEvent(new Event("input", {bubbles: true}));
+    });
+  });
+
+  /* Libellés d'aide pour la qualité et l'état */
+  const NIVEAUX = {
+    grade: [[5, "Basique"], [7, "Standard"], [9, "Bonne qualité"], [11, "Très bonne qualité"], [13, "Haut de gamme"]],
+    condition: [[1, "À rénover"], [2, "Passable"], [3, "Correct"], [4, "Bon état"], [5, "Excellent état"]]
+  };
+  function majNiveau(nom) {
+    const champ = document.getElementById(nom), sortie = document.getElementById("niveau-" + nom);
+    if (!champ || !sortie) return;
+    const valeur = parseFloat(champ.value);
+    if (isNaN(valeur)) { sortie.textContent = ""; return; }
+    const palier = NIVEAUX[nom].find(function (p) { return valeur <= p[0]; });
+    sortie.textContent = palier ? palier[1] : "";
+  }
+  Object.keys(NIVEAUX).forEach(function (nom) {
+    const champ = document.getElementById(nom);
+    if (champ) { champ.addEventListener("input", function () { majNiveau(nom); }); majNiveau(nom); }
+  });
+
+  /* Retour visuel à l'envoi du formulaire */
+  const formulaire = document.getElementById("formulaire");
+  const boutonEstimer = document.getElementById("bouton-estimer");
+  formulaire.addEventListener("submit", function () {
+    boutonEstimer.classList.add("chargement");
+    boutonEstimer.querySelector(".bouton-texte").textContent = "Estimation en cours";
+  });
+  window.addEventListener("pageshow", function () {
+    boutonEstimer.classList.remove("chargement");
+    boutonEstimer.querySelector(".bouton-texte").textContent = "Estimer le prix";
+  });
+
+  {% if resultat %}document.getElementById("resultat").scrollIntoView({behavior: "smooth", block: "start"});{% elif erreurs %}document.getElementById("alerte").scrollIntoView({behavior: "smooth", block: "center"});{% endif %}
 </script>
 
 </body>
