@@ -1,0 +1,183 @@
+:root {
+  --fond: #f4f7fb;
+  --carte: #ffffff;
+  --texte: #1f2933;
+  --discret: #6b7785;
+  --bordure: #d5dae0;
+  --accent: #2a6fdb;
+  --accent-fonce: #1f56ad;
+  --accent-clair: #e8f0fd;
+  --erreur: #b42318;
+  --erreur-fond: #fdecea;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fond);
+  color: var(--texte);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+.conteneur {
+  width: min(1100px, 100% - 32px);
+  margin: 0 auto;
+}
+
+.bandeau {
+  background: var(--accent);
+  color: #ffffff;
+  padding: 28px 0;
+}
+.bandeau h1 { margin: 0 0 4px; font-size: 1.9rem; letter-spacing: -0.01em; }
+.bandeau p { margin: 0; opacity: 0.92; }
+
+.grille {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  padding: 28px 0 40px;
+}
+
+.carte {
+  background: var(--carte);
+  border: 1px solid var(--bordure);
+  border-radius: 12px;
+  padding: 24px;
+}
+.titre-carte { margin: 0 0 16px; font-size: 1.25rem; }
+
+.section {
+  border: 0;
+  padding: 0;
+  margin: 0 0 22px;
+}
+.section legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-weight: 600;
+  color: var(--accent-fonce);
+}
+
+.champs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.champ { display: flex; flex-direction: column; gap: 4px; }
+.champ label { font-size: 0.92rem; font-weight: 500; }
+
+input[type="number"], select {
+  width: 100%;
+  padding: 9px 10px;
+  font: inherit;
+  color: var(--texte);
+  background: #ffffff;
+  border: 1px solid var(--bordure);
+  border-radius: 8px;
+}
+input[type="number"]:focus, select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.case {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 26px;
+  font-weight: 500;
+}
+.case input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+small { font-size: 0.8rem; }
+.aide { color: var(--discret); }
+.message-erreur { color: var(--erreur); font-weight: 500; }
+.champ-erreur input, .champ-erreur select { border-color: var(--erreur); background: var(--erreur-fond); }
+
+.alerte {
+  background: var(--erreur-fond);
+  color: var(--erreur);
+  border: 1px solid #f3b8b2;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  font-weight: 500;
+}
+
+.avancee {
+  border: 1px dashed var(--bordure);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 22px;
+}
+.avancee summary { cursor: pointer; font-weight: 600; color: var(--accent-fonce); }
+.avancee .champs { margin-top: 14px; }
+
+.bouton {
+  width: 100%;
+  padding: 13px 18px;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.bouton:hover { background: var(--accent-fonce); }
+.bouton:focus-visible { outline: 3px solid var(--accent-clair); outline-offset: 2px; }
+
+.resultat { position: sticky; top: 16px; }
+.prix {
+  margin: 4px 0 4px;
+  font-size: 2.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--accent);
+}
+.fourchette { margin: 0 0 14px; color: var(--discret); }
+.vide { color: var(--discret); margin: 0 0 8px; }
+
+.details { margin: 0 0 14px; }
+.details div {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-top: 1px solid var(--bordure);
+}
+.details dt { color: var(--discret); }
+.details dd { margin: 0; font-weight: 600; }
+
+.technique { margin-bottom: 14px; font-size: 0.88rem; }
+.technique summary { cursor: pointer; color: var(--accent-fonce); font-weight: 500; }
+.technique table { width: 100%; margin-top: 8px; border-collapse: collapse; }
+.technique th, .technique td { padding: 3px 0; border-bottom: 1px solid var(--bordure); text-align: left; }
+.technique td { text-align: right; font-variant-numeric: tabular-nums; }
+.technique th { font-weight: 400; color: var(--discret); }
+
+.note {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--accent-clair);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #26364d;
+}
+.note p { margin: 0 0 8px; }
+.note p:last-child { margin-bottom: 0; }
+
+@media (max-width: 880px) {
+  .grille { grid-template-columns: 1fr; }
+  .resultat { position: static; }
+}
+@media (max-width: 520px) {
+  .champs { grid-template-columns: 1fr; }
+  .case { padding-top: 0; }
+}

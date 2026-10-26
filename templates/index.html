@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chasseurs d'appart' - Estimateur de prix</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+{% macro champ_html(c) %}
+  <div class="champ{% if erreurs.get(c.nom) %} champ-erreur{% endif %}">
+    {% if c.type == 'checkbox' %}
+      <label class="case">
+        <input type="checkbox" name="{{ c.nom }}" id="{{ c.nom }}" {% if saisie[c.nom] in (True, 'on') %}checked{% endif %}>
+        <span>{{ c.label }}</span>
+      </label>
+    {% else %}
+      <label for="{{ c.nom }}">{{ c.label }}</label>
+      {% if c.type == 'select' %}
+        <select name="{{ c.nom }}" id="{{ c.nom }}">
+          {% for valeur, libelle in c.options %}
+            <option value="{{ valeur }}" {% if saisie[c.nom]|string == valeur|string %}selected{% endif %}>{{ libelle }}</option>
+          {% endfor %}
+        </select>
+      {% else %}
+        <input type="number" name="{{ c.nom }}" id="{{ c.nom }}" value="{{ saisie[c.nom]|nb }}"
+               min="{{ c.min }}" max="{{ c.max }}" step="{{ c.step }}" {% if not c.optionnel %}required{% endif %}>
+      {% endif %}
+    {% endif %}
+    {% if erreurs.get(c.nom) %}<small class="message-erreur">{{ erreurs[c.nom] }}</small>{% endif %}
+    {% if c.aide %}<small class="aide">{{ c.aide }}</small>{% endif %}
+  </div>
+{% endmacro %}
+
+<header class="bandeau">
+  <div class="conteneur">
+    <h1>Chasseurs d'appart'</h1>
+    <p>Estimateur de prix d'un bien immobilier dans le comté de King (région de Seattle, États-Unis).</p>
+  </div>
+</header>
+
+<main class="conteneur grille">
+
+  <form method="post" class="carte" novalidate>
+    <h2 class="titre-carte">Décrivez le bien</h2>
+
+    {% if erreurs %}
+      <div class="alerte" id="alerte" role="alert">Certains champs sont à corriger avant de lancer l'estimation.</div>
+    {% endif %}
+
+    {% for section in sections %}
+      {% if section.avance %}
+        <details class="section avancee" {% if erreurs %}open{% endif %}>
+          <summary>{{ section.titre }}</summary>
+          <div class="champs">
+            {% for c in section.champs %}{{ champ_html(c) }}{% endfor %}
+          </div>
+        </details>
+      {% else %}
+        <fieldset class="section">
+          <legend>{{ section.titre }}</legend>
+          <div class="champs">
+            {% for c in section.champs %}{{ champ_html(c) }}{% endfor %}
+          </div>
+        </fieldset>
+      {% endif %}
+    {% endfor %}
+
+    <button type="submit" class="bouton">Estimer le prix</button>
+  </form>
+
+  <aside class="carte resultat" id="resultat" aria-live="polite">
+    {% if resultat %}
+      <h2 class="titre-carte">Estimation</h2>
+      <p class="prix">{{ resultat.prix|dollars }}</p>
+      <p class="fourchette">Fourchette indicative : {{ resultat.bas|dollars }} à {{ resultat.haut|dollars }}</p>
+      <dl class="details">
+        <div><dt>Prix au m²</dt><dd>{{ resultat.prix_m2|dollars_exact }}</dd></div>
+      </dl>
+      <details class="technique">
+        <summary>Ce que le modèle a reçu</summary>
+        <table>
+          {% for nom, valeur in resultat.variables.items() %}
+            <tr><th scope="row">{{ nom }}</th><td>{{ valeur|nb }}</td></tr>
+          {% endfor %}
+        </table>
+      </details>
+    {% else %}
+      <h2 class="titre-carte">Estimation</h2>
+      <p class="vide">Renseignez les caractéristiques du bien, puis lancez l'estimation. Le résultat s'affichera ici.</p>
+    {% endif %}
+
+    <div class="note">
+      <p><strong>Modèle :</strong> {{ infos.modele }}, entraîné sur des ventes de mai 2014 à mai 2015. Sur des biens qu'il n'a jamais vus, son erreur médiane est de {{ erreur_mediane|string|replace('.', ',') }} %.</p>
+      <p>Les prix sont en dollars américains et reflètent le marché de 2014-2015 : c'est une estimation indicative, pas une expertise. La fourchette correspond à l'erreur médiane du modèle.</p>
+    </div>
+  </aside>
+
+</main>
+
+<script>
+  const ZONES = {{ zones|tojson }};
+  const codePostal = document.getElementById("zipcode");
+  const champsZone = {lat: "lat", long: "long", living15_m2: "living15_m2", lot15_m2: "lot15_m2"};
+  function majPlaceholders() {
+    const zone = ZONES[codePostal.value];
+    if (!zone) return;
+    for (const [cle, id] of Object.entries(champsZone)) {
+      const champ = document.getElementById(id);
+      if (champ) champ.placeholder = zone[cle];
+    }
+  }
+  codePostal.addEventListener("change", majPlaceholders);
+  majPlaceholders();
+  {% if resultat %}document.getElementById("resultat").scrollIntoView();{% elif erreurs %}document.getElementById("alerte").scrollIntoView();{% endif %}
+</script>
+
+</body>
+</html>
