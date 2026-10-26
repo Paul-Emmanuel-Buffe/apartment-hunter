@@ -1,66 +1,280 @@
-# Analyse et Fonctionnement des Algorithmes de Régression
+# Apartment Hunter ("Chasseurs d'appart'")
 
-## 1. Introduction à la Régression et Préparation des Données
-Dans le domaine du Machine Learning, notre projet s'inscrit dans le cadre de l'**apprentissage supervisé**. Notre objectif est de prédire la valeur d'un bien immobilier en nous basant sur ses caractéristiques (surface, localisation, qualité de construction, etc.). Puisque la variable que nous cherchons à prédire est une valeur continue (un prix en dollars) et non une catégorie, nous utilisons des algorithmes de **régression**.
+End-to-end machine learning project: it estimates the sale price of a house in **King County (Seattle area, USA)** from its characteristics. The project covers data cleaning, exploratory analysis in Power BI, model training and comparison, and deployment as a **Flask web app** packaged with **Docker**.
 
-Cependant, la performance d'un modèle de régression dépend fortement de la qualité des données qu'on lui fournit. Le marché immobilier présente des spécificités techniques (forte asymétrie, variables géographiques complexes) qui ont nécessité des transformations mathématiques préalables :
+The model is a tuned Gradient Boosting regressor trained on King County sales from **May 2014 to May 2015**. The web interface is in French. The app offers both a web form and a JSON API.
 
-*   **L'échantillonnage stratifié :** Pour garantir une évaluation juste de nos modèles, nous avons séparé nos données d'entraînement et de test en veillant à conserver la même proportion de biens abordables, moyens et luxueux dans les deux échantillons (via la méthode `qcut`).
-*   **La gestion de l'asymétrie (Logarithme et RobustScaler) :** Le marché immobilier est dominé par une poignée de biens d'exception très onéreux qui faussent les calculs. En prédisant le logarithme du prix (`log_price`) au lieu du prix brut, nous normalisons la distribution. De plus, l'utilisation d'un `RobustScaler` (basé sur la médiane et l'écart interquartile) permet de mettre à l'échelle nos données sans être influencé par ces valeurs extrêmes.
-*   **Le Target Encoding du Code Postal :** Les algorithmes ne comprennent pas les zones géographiques. Au lieu de multiplier artificiellement les colonnes (One-Hot Encoding), nous avons remplacé chaque code postal par le log-prix moyen historique de ce quartier. Ce calcul a été effectué strictement sur le jeu d'entraînement pour éviter toute fuite de données (Data Leakage).
+## Table of contents
 
-Une fois cette fondation solide établie, nous avons pu confronter trois familles d'algorithmes de régression.
+1. [Project pipeline](#project-pipeline)
+2. [Data](#data)
+3. [Modelling results](#modelling-results)
+4. [Project structure](#project-structure)
+5. [Run locally](#run-locally)
+6. [Run with Docker](#run-with-docker)
+7. [API](#api)
+8. [Feature engineering at prediction time](#feature-engineering-at-prediction-time)
+9. [Limitations](#limitations)
 
-### 1.1 Échantillonnage Stratifié : Équilibrer les biens abordables et luxueux
+## Project pipeline
 
-Le problème initial :
-En Machine Learning, on sépare nos données en un jeu d'entraînement (Train) et un jeu de test (Test). Si l'on fait cela au hasard (aléatoirement), on prend le risque que notre jeu de test ne contienne que des maisons de taille moyenne, et aucune villa de luxe. Le modèle ne sera donc jamais évalué sur sa capacité à prédire les biens très chers.
+```
+kc_house_data.csv (raw)
+   │  Notebook 1: cleaning (duplicates, outliers)
+   ▼
+king_county_cleaned.csv ──► Power BI EDA (eda_pre_cleaned_data.pbix)
+   │  Notebook 1: feature engineering + correlation matrix
+   ▼
+king_county_cleaned.csv (with log_price, age features, sale month)
+   │  Notebook 2: split, encoding, Boruta, Ridge / Random Forest / Gradient Boosting
+   ▼
+model/gradient_boosting_model.joblib + model/zipcode_encoding.joblib
+   │
+   ▼
+Flask app (app.py) ──► Docker image
+```
 
-La solution : L'échantillonnage stratifié
-La stratification garantit que la distribution d'une variable cible est identique dans le Train et dans le Test.
+### 1. Data exploration and cleaning (`1_data_exploration_and_cleaning.ipynb`)
 
-Pour une classification (ex: Chien/Chat), c'est facile : on garde 50% de chiens dans le train et 50% dans le test.
+- The raw dataset has 21,613 rows and 21 columns, with no missing values and no strictly identical rows.
+- 177 houses were sold more than once: only the **most recent sale** of each house is kept, to avoid data leakage between train and test.
+- Outliers removed:
+  - living area above 10,000 sqft
+  - lot above 750,000 sqft (about 7 ha)
+  - the 33-bedroom data-entry error and the atypical 11-bedroom house
+  - houses with 0 bedrooms and more than 1,500 sqft (inconsistent)
+  - houses with 0 bathrooms
+- Result: **21,408 rows** (205 removed, about 0.95 %).
+- The cleaned file is exported and explored in Power BI, then the notebook adds features:
+  - `log_price` (log of the target, to handle the right-skewed price distribution)
+  - `anciennete` (age in 2015), `est_renove` (renovated flag) and `age_effectif` (age since the last renovation, or since construction if never renovated)
+  - `mois_vente` (month of sale, for seasonality)
+- A Pearson correlation matrix highlights the main drivers of price (`grade` and `sqft_living` at about 0.70, then `sqft_living15`, `sqft_above`, `bathrooms`, `lat`) and the collinearity between area-related variables.
 
-Pour une régression (le prix continu d'une maison), c'est plus complexe. On utilise alors une méthode mathématique (pd.qcut en Python) pour découper nos prix continus en "tranches" (quantiles). Par exemple, 5 tranches : Très abordable, Abordable, Moyen, Cher, Très cher.
-L'algorithme s'assure ensuite de piocher proportionnellement dans ces 5 boîtes pour créer le Train et le Test.
+### 2. Modelling and evaluation (`2_modeling_and_evaluation.ipynb`)
 
-### 1.2 Gérer l'asymétrie du marché : Transformation Logarithmique de la cible et RobustScaler
+- **Stratified split 80 / 20** on 5 price quantiles (`qcut` on `log_price`): 17,126 training rows and 4,282 test rows, 20 features. Cheap, average and luxury homes are represented in both sets.
+- **Target encoding of the zip code** (mean `log_price` per zip code), computed on the training set only. Unknown zip codes in the test set fall back to the training mean.
+- **Boruta feature selection** (Random Forest, 50 iterations) confirmed 12 features and rejected 8 (`bedrooms`, `bathrooms`, `floors`, `condition`, `sqft_basement`, `est_renove`, `age_effectif`, `mois_vente`), mostly because they are collinear with `sqft_living`. Boruta relies on shallow trees and underrates some variables that matter in the final model (`condition`, `age_effectif`), so **all 20 features were kept** and left to the models (and Ridge regularisation) to handle.
+- Three algorithms were compared, then the best one was tuned with `GridSearchCV`.
+- **Permutation importance** was computed on the test set to check that the model relies on sensible criteria.
+- The final model and the zip code encoding table are saved with Joblib.
 
-**Le problème des valeurs extrêmes (Outliers) :**Le marché immobilier est fortement asymétrique (on parle de Right-Skewed Distribution). La majorité des maisons coûte entre 300 000 $et 800 000$, mais quelques biens à 5 ou 10 millions de dollars "tirent" la moyenne vers le haut. Les modèles linéaires sont très sensibles à ces valeurs extrêmes qui faussent leurs calculs.
+## Data
 
-**Solution 1 : La transformation Logarithmique (np.log)**
-En appliquant le logarithme mathématique sur la variable cible (le prix), on "tasse" les très grandes valeurs. L'échelle passe de millions à des valeurs autour de 12 à 15. La distribution prend alors une forme de "cloche" classique (loi normale). Les modèles apprennent beaucoup mieux sur des courbes normales. Une fois la prédiction faite, on utilise l'exponentielle (np.exp) pour repasser en dollars.
+| File | Description |
+|---|---|
+| `data/kc_house_data.csv` | Raw King County house sales (21,613 rows, 21 columns) |
+| `data/king_county_cleaned.csv` | Cleaned dataset with engineered features (21,408 rows), used for modelling |
+| `data/zipcodes.json` | Per zip code: centre coordinates, median neighbour living and lot areas, number of sales. Used to pre-fill optional fields in the app |
+| `powerbi/eda_pre_cleaned_data.pbix` | Power BI report for the exploratory analysis of the cleaned data |
 
-**Solution 2 : Le RobustScaler**
-Même avec le log sur le prix, nos features (surfaces, etc.) contiennent des valeurs extrêmes. Le **StandardScaler classique** utilise la moyenne, qui est faussée par les biens les plus chers. Le **RobustScaler**, lui, utilise la médiane et l'écart interquartile (IQR : la zone où se trouvent 50 % des données centrales). **Il ignore donc complètement l'influence des valeurs aberrantes pour mettre toutes les colonnes à la même échelle (entre 0 et 1 environ)**.
+The raw dataset is the well-known "King County House Sales" dataset (sales between May 2014 and May 2015).
 
-### 1.3 L'Encodage Intelligent des Catégories : Le Target Encoding sur le Code Postal
+## Modelling results
 
-### 1.4 Sélection rigoureuse des caractéristiques (Feature Selection) avec Boruta
+Metrics on the held-out test set. R² is computed on `log(price)`; MAE and RMSE are in US dollars after converting back with `exp`.
 
-Pour s'assurer que les modèles ne s'entraînent que sur des données pertinentes, une étape de sélection des variables (*Feature Selection*) est souvent nécessaire avant la modélisation. Pour répondre à ce besoin, l'algorithme **Boruta** est utilisé comme filtre de validation.
+| Model | R² (log) | MAE | RMSE |
+|---|---|---|---|
+| Ridge (RobustScaler + RidgeCV, alpha = 1.87) | 0.8607 | 83,428 $ | 163,671 $ |
+| Random Forest (100 trees, depth 15) | 0.8935 | 68,559 $ | 126,865 $ |
+| HistGradientBoosting (default-ish) | 0.9071 | 64,383 $ | 123,200 $ |
+| **HistGradientBoosting (tuned, champion)** | **0.9085** | **62,972 $** | **119,209 $** |
 
-**Le concept :** 
-Boruta est un algorithme qui s'appuie sur un modèle d'arbres de décision (généralement un Random Forest) pour comparer le pouvoir prédictif des variables réelles face à du bruit statistique pur. L'objectif n'est pas juste de prendre le "Top 10" des variables, mais de conserver **toutes** les variables statistiquement pertinentes.
+Best hyperparameters (24 combinations, 3-fold cross-validation): `learning_rate=0.05`, `max_iter=250`, `max_depth=None`, `min_samples_leaf=50`.
 
-**Le fonctionnement (La compétition contre le hasard) :**
-1. **Création d'ombres :** Boruta duplique toutes les variables du jeu de données, mais mélange aléatoirement leurs valeurs. Ces « variables ombres » (*shadow features*) perdent tout lien logique avec la variable cible.
-2. **Entraînement :** Un modèle Random Forest est entraîné sur ce jeu de données combiné (vraies variables + variables ombres).
-3. **Le Jugement :** L'algorithme extrait l'importance de chaque variable. La meilleure variable ombre (le meilleur bruit) sert de seuil de référence.
-4. **La Décision :** Toute variable réelle qui n'arrive pas à battre le score du hasard est rejetée. Celles qui performent significativement mieux sont définitivement validées.
+The app displays a median error of **8.1 %** on unseen houses and uses it to build the indicative price range.
 
-**L'intérêt pour le projet :** 
-L'application de Boruta permet de prouver objectivement que le jeu de données final fourni aux modèles de régression (Gradient Boosting, Ridge) est débarrassé de tout bruit parasite, limitant ainsi fortement le risque de surapprentissage (*overfitting*).
+Top 10 variables by permutation importance:
 
-## 2. Algorithme 1 : La Régression Ridge (Modèle Linéaire Pénalisé)
-### Recherche automatique de la meilleure pénalité avec RidgeCV
+| Variable | Importance |
+|---|---|
+| `zipcode_encoded` | 0.231 |
+| `sqft_living` | 0.196 |
+| `lat` | 0.159 |
+| `grade` | 0.094 |
+| `long` | 0.052 |
+| `sqft_lot` | 0.033 |
+| `view` | 0.017 |
+| `age_effectif` | 0.013 |
+| `sqft_living15` | 0.011 |
+| `condition` | 0.009 |
 
-## 3. Algorithme 2 : Random Forest Regressor (Méthode Ensembliste - Bagging)
+Location (zip code, latitude, longitude) is the dominant factor, followed by living area and construction quality.
 
-## 4. Algorithme 3 : Gradient Boosting Regressor (Méthode Ensembliste - Boosting)
-### L'ajustement fin des hyperparamètres avec GridSearchCV
+## Features of the web app
 
-## 5. Interprétabilité, Choix du Modèle et Déploiement
-### 5.1 Ouvrir la « Boîte Noire » : L'analyse par Permutation Importance
-### 5.2 Bilan et Choix du Modèle Champion
-### 5.3 Sérialisation pour la Mise en Production (Joblib)
+- Web form to describe a property (location, surfaces, rooms, age, quality, view, etc.)
+- Price estimate with an indicative range based on the model's median error
+- Price per square metre
+- "What the model received" panel showing the exact features sent to the model
+- JSON API and health check
+- Input validation with clear error messages
+- Optional advanced fields (latitude, longitude, neighbourhood averages) that default to values computed from the selected zip code
+
+## Project structure
+
+```
+.
+├── app.py                  # Flask application
+├── requirements.txt
+├── Dockerfile
+├── README.md
+├── data/
+│   ├── kc_house_data.csv
+│   ├── king_county_cleaned.csv
+│   └── zipcodes.json
+├── model/
+│   ├── gradient_boosting_model.joblib   # trained model
+│   └── zipcode_encoding.joblib          # zip code -> target encoding
+├── notebooks/
+│   ├── 1_data_exploration_and_cleaning.ipynb
+│   └── 2_modeling_and_evaluation.ipynb
+├── powerbi/
+│   └── eda_pre_cleaned_data.pbix
+├── templates/
+│   └── index.html
+└── static/
+    └── style.css
+```
+
+`app.py` checks at startup that the zip codes in `zipcode_encoding.joblib` and `zipcodes.json` match, and stops with an error if they differ. The notebooks read and write files through relative paths (`../data/`, `../model/`), so they are meant to be run from the `notebooks/` folder.
+
+## Requirements
+
+- Python 3.10+ (the Docker image uses Python 3.11)
+- Dependencies pinned in `requirements.txt`: Flask, scikit-learn, pandas, numpy, joblib
+- To re-run the notebooks you also need `boruta`, `matplotlib` and `seaborn`, plus Jupyter
+- Power BI Desktop to open the `.pbix` file
+
+## Run locally
+
+```bash
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
+```
+
+The app starts on http://127.0.0.1:5001 by default.
+
+Environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `HOST` | `127.0.0.1` | Interface to listen on |
+| `PORT` | `5001` | Port to listen on |
+| `FLASK_DEBUG` | unset | Set to `1` for debug mode with auto-reload |
+
+## Run with Docker
+
+Build the image:
+
+```bash
+docker build -t apartment-hunter .
+```
+
+Run it:
+
+```bash
+docker run --rm -p 5000:5000 apartment-hunter
+```
+
+Then open http://localhost:5000.
+
+Useful variations:
+
+```bash
+# run in the background
+docker run -d --name apartment-hunter -p 5000:5000 apartment-hunter
+
+# use another port on your machine
+docker run --rm -p 8080:5000 apartment-hunter
+
+# logs, stop, remove
+docker logs -f apartment-hunter
+docker stop apartment-hunter
+docker rm -f apartment-hunter
+```
+
+The Dockerfile sets `HOST=0.0.0.0` and `PORT=5000` so the app is reachable from outside the container.
+
+## API
+
+### `GET /sante`
+
+Health check.
+
+```json
+{"statut": "ok"}
+```
+
+### `POST /api/estimation`
+
+Send a JSON object. Surfaces are in square metres and are converted to square feet internally.
+
+```bash
+curl -X POST http://localhost:5000/api/estimation \
+  -H "Content-Type: application/json" \
+  -d '{
+    "zipcode": "98118",
+    "living_m2": 150,
+    "basement_m2": 0,
+    "lot_m2": 600,
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "floors": 1,
+    "yr_built": 1975,
+    "mois_vente": 5,
+    "grade": 7,
+    "condition": 3,
+    "view": 0
+  }'
+```
+
+The response contains `prix_estime`, `fourchette` (low and high bounds), `prix_m2`, `devise` (`USD`), `erreur_mediane_pct` and `variables_modele` (the features sent to the model).
+
+On invalid input, the API returns HTTP 400 with an `erreurs` object listing the problems per field.
+
+### Input fields
+
+| Field | Description | Required | Range |
+|---|---|---|---|
+| `zipcode` | King County zip code (70 supported) | yes | see `data/zipcodes.json` |
+| `living_m2` | Living area (m²) | yes | 30 - 930 |
+| `above_m2` | Area above ground (m²); deduced if empty | no | 20 - 930 |
+| `basement_m2` | Basement area (m²), 0 if none | yes | 0 - 900 |
+| `lot_m2` | Lot size (m²) | yes | 40 - 70000 |
+| `bedrooms` | Bedrooms (0 = studio) | yes | 0 - 10 |
+| `bathrooms` | Bathrooms (0.25 steps) | yes | 0.5 - 8 |
+| `floors` | Floors (0.5 steps) | yes | 1 - 3.5 |
+| `yr_built` | Year built | yes | 1900 - 2015 |
+| `yr_renovated` | Year of last renovation | no | 1900 - 2015 |
+| `mois_vente` | Month of sale (1-12) | yes | 1 - 12 |
+| `grade` | Construction quality | yes | 3 - 13 |
+| `condition` | Overall condition | yes | 1 - 5 |
+| `view` | View quality index | yes | 0 - 4 |
+| `waterfront` | Waterfront property | no | true / false |
+| `lat`, `long` | Coordinates; default to the zip code centre | no | 47.1 - 47.8 / -122.6 - -121.2 |
+| `living15_m2`, `lot15_m2` | Average living / lot area of the 15 nearest neighbours; default to the zip code median | no | 30 - 930 / 40 - 70000 |
+
+Validation rules: the basement must be smaller than the living area, `above_m2 + basement_m2` must match `living_m2` (within 1 m²), and the renovation year cannot precede the construction year.
+
+## Feature engineering at prediction time
+
+Before calling the model, `app.py` reproduces the same transformations as the notebooks:
+
+- converts m² to ft² (1 m² = 10.7639 ft²)
+- computes `anciennete`, `est_renove` and `age_effectif` (2015 is the reference year)
+- fills in missing location and neighbourhood values from the zip code
+- applies the zip code target encoding
+- orders the columns exactly as the model expects (`feature_names_in_`)
+- converts the prediction back from log scale with `exp`
+
+## Limitations
+
+- Trained on 2014-2015 data only: prices do not reflect today's market.
+- Only valid for the King County zip codes present in `data/zipcodes.json`.
+- The displayed range is the model's median error, not a statistical confidence interval.
+- The app uses Flask's built-in development server. For real production use, run it behind a production WSGI server such as Gunicorn.
